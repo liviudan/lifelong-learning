@@ -14,20 +14,28 @@ import os
 from data_loaders import load_datasets, get_dataset_loaders
 from network import Net
 
+from ewc import ElasticConstraint
+
 # ------------------- Training settings -------------------
-parser = argparse.ArgumentParser(description='PyTorch MNIST/CIFAR10 Simple Conv')
+parser = argparse.ArgumentParser(
+    description='PyTorch MNIST/CIFAR10 Simple Conv')
 parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('--epochs', type=int, default=3, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
-                    help='learning rate (default: 0.01)')
+parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+                    help='learning rate (default: 0.001)')
 parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                     help='SGD momentum (default: 0.5)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
+parser.add_argument('--ewc', action='store_true', default=False,
+                    help='adds elastic weight consolidation')
+parser.add_argument('--elastic-scale', type=float, default=1000,
+                    dest='elastic_scale',
+                    help='Elastic Scale (default: 10^3)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 args = parser.parse_args()
@@ -41,14 +49,15 @@ load_datasets(args)
 
 # ---------------------------------------------------------
 
-def init_model_and_optimizer(use_attention_improvement = False):
+
+def init_model_and_optimizer(use_attention_improvement=False):
     model = Net(use_attention_improvement)
     if args.cuda:
         model.cuda()
-
-    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     return model, optimizer
+
 
 def test(model, dataset_name):
     train_loader, test_loader = get_dataset_loaders(dataset_name)
@@ -60,7 +69,8 @@ def test(model, dataset_name):
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
         output = model(data)
-        test_loss += F.cross_entropy(output, target, size_average=False).data[0]
+        test_loss += F.cross_entropy(output, target,
+                                     size_average=False).data[0]
         # get the index of the max log-probability
         pred = output.data.max(1, keepdim=True)[1]
         correct += pred.eq(target.data.view_as(pred)).long().cpu().sum()
@@ -73,12 +83,16 @@ def test(model, dataset_name):
 
     return accuracy
 
-def train(model, optimizer, epoch, dataset_name):
+
+def train(model, optimizer, epoch, dataset_name, elastic=None):
     train_loader, test_loader = get_dataset_loaders(dataset_name)
     model.train()
     train_loss = 0
     print('\nTraining Epoch: {} on Dataset: {} started.'.format(
         epoch, dataset_name))
+    if elastic is not None:
+        ce_losses = []
+        elastic_losses = []
     for batch_idx, (data, target) in enumerate(train_loader):
         if args.cuda:
             data, target = data.cuda(), target.cuda()
@@ -86,6 +100,11 @@ def train(model, optimizer, epoch, dataset_name):
         optimizer.zero_grad()
         output = model(data)
         loss = F.cross_entropy(output, target) + model.get_extra_loss()
+        if elastic is not None:
+            elastic_loss = elastic(model) * args.elastic_scale
+            elastic_losses.append(elastic_loss.data[0])
+            ce_losses.append(loss.data[0])
+            loss = loss + elastic_loss
         loss.backward()
         train_loss += loss.data[0]
         optimizer.step()
@@ -93,24 +112,35 @@ def train(model, optimizer, epoch, dataset_name):
             train_loss /= len(train_loader.dataset)
             print('Training Epoch: {} on Dataset: {} done.\tAverage loss: {:.6f}\n'.format(
                 epoch, dataset_name, train_loss))
+            if elastic is not None:
+                print("Cross-Entropy vs Elastic loss: ",
+                      np.mean(ce_losses), " -- ", np.mean(elastic_losses))
+
 
 def init_simple_and_attention_run():
     model_simple, optimizer_simple = init_model_and_optimizer()
-    train_simple = lambda epoch, dataset_name: train(model_simple, optimizer_simple, epoch , dataset_name)
-    test_simple = lambda dataset_name: test(model_simple, dataset_name)
 
-    model_attention, optimizer_attention = init_model_and_optimizer(use_attention_improvement=True)
-    train_attention = lambda epoch, dataset_name: train(model_attention, optimizer_attention, epoch , dataset_name)
-    test_attention = lambda dataset_name: test(model_attention, dataset_name)
+    def train_simple(epoch, dataset_name):
+        return train(model_simple, optimizer_simple, epoch, dataset_name)
 
-    return train_simple, test_simple, model_simple, optimizer_simple, \
-           train_attention, test_attention, model_attention, optimizer_attention
+    def test_simple(dataset_name):
+        return test(model_simple, dataset_name)
+
+    model_attention, optimizer_attention = init_model_and_optimizer(
+        use_attention_improvement=True)
+
+    def train_attention(epoch, dataset_name, elastic=None):
+        return train(model_attention, optimizer_attention, epoch, dataset_name, elastic=elastic)
+
+    def test_attention(dataset_name):
+        return test(model_attention, dataset_name)
+
+    return train_simple, test_simple, model_simple, optimizer_simple, train_attention, test_attention, model_attention, optimizer_attention
 
 
 print("------------------Starting Sequential traning.------------------")
 
-train_simple, test_simple, model_simple, optimizer_simple, \
-train_attention, test_attention, model_attention, optimizer_attention = init_simple_and_attention_run()
+train_simple, test_simple, model_simple, optimizer_simple, train_attention, test_attention, model_attention, optimizer_attention = init_simple_and_attention_run()
 
 MNIST_results_simple = []
 MNIST_results_attention = []
@@ -125,7 +155,7 @@ for i in range(args.epochs):
     MNIST_results_simple.append(test_simple("MNIST"))
     CIFAR10_results_simple.append(test_simple("CIFAR10"))
 
-for i in range(3):
+for i in range(args.epochs):
     train_simple(i + 1, "CIFAR10")
     MNIST_results_simple.append(test_simple("MNIST"))
     CIFAR10_results_simple.append(test_simple("CIFAR10"))
@@ -133,26 +163,32 @@ for i in range(3):
 
 print("------Starting attention run------")
 
-#model_attention.activate_half_full_depth()
+# model_attention.activate_half_full_depth()
 
 for i in range(args.epochs):
-    train_attention(i + 1 , "MNIST")
+    train_attention(i + 1, "MNIST")
     MNIST_results_attention.append(test_attention("MNIST"))
     CIFAR10_results_attention.append(test_attention("CIFAR10"))
+
+if args.ewc:
+    train_loader, _ = get_dataset_loaders("MNIST")
+    elastic = ElasticConstraint(model_attention, train_loader, args)
+else:
+    elastic = None
 
 model_attention.acccumulate_w()
 test_attention("MNIST")
 model_attention.use_kl_with_accumulated_w(10 ** 3, print_w=False)
 
-#model_attention.deactivate_half_full_depth()
+# model_attention.deactivate_half_full_depth()
 
-#model_attention.freeze_convs()
+# model_attention.freeze_convs()
 
 for i in range(3):
-    train_attention(i + 1, "CIFAR10")
-    #model_attention.acccumulate_w()
+    train_attention(i + 1, "CIFAR10", elastic=elastic)
+    # model_attention.acccumulate_w()
     MNIST_results_attention.append(test_attention("MNIST"))
-    #model_attention.average_print_reset_accumulated_w(print_2nd=False)
+    # model_attention.average_print_reset_accumulated_w(print_2nd=False)
     CIFAR10_results_attention.append(test_attention("CIFAR10"))
 
 
