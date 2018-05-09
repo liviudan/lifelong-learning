@@ -48,13 +48,14 @@ class Net(nn.Module):
         self.sconv1.average_accumulated_w()
         self.sconv2.average_accumulated_w()
 
-    def print_accumulated_w(self):
+    def print_accumulated_w(self, print_2nd=True):
         self.sconv1.print_accumulated_w()
-        self.sconv2.print_accumulated_w()
+        if print_2nd:
+            self.sconv2.print_accumulated_w()
 
-    def average_print_reset_accumulated_w(self):
+    def average_print_reset_accumulated_w(self, print_2nd=True):
         self.average_accumulated_w()
-        self.print_accumulated_w()
+        self.print_accumulated_w(print_2nd)
         self.reset_accumulated_w()
 
     def use_kl_with_accumulated_w(self, kl_factor, print_w):
