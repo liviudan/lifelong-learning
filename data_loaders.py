@@ -37,6 +37,31 @@ def load_datasets(args):
                                             (0.2023, 0.1994, 0.2010))
                                         ]))
 
+    SVHN_train_dataset = datasets.SVHN(root='../data', split='train', download=True,
+                                    transform=transforms.Compose([
+                                        transforms.Grayscale(),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                                    ]))
+    SVHN_test_dataset = datasets.SVHN(root='../data', split='test', download=True,
+                                transform=transforms.Compose([
+                                    transforms.Grayscale(),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                                ]))
+
+    FashionMNIST_train_dataset = datasets.FashionMNIST('../data', train=True, download=True,
+                                     transform=transforms.Compose([
+                                         transforms.Pad(2),
+                                         transforms.ToTensor(),
+                                         transforms.Normalize((0.1307,), (0.3081,))
+                                     ]))
+    FashionMNIST_test_dataset = datasets.FashionMNIST('../data', train=False, transform=transforms.Compose([
+                                    transforms.Pad(2),
+                                    transforms.ToTensor(),
+                                    transforms.Normalize((0.1307,), (0.3081,))
+                                    ]))
+
     COMBO_train_dataset = torch.utils.data.ConcatDataset(
                             [MNIST_train_dataset,
                             CIFAR10_train_dataset])
@@ -57,13 +82,23 @@ def load_datasets(args):
     train_loader_COMBO = get_dataloader(COMBO_train_dataset)
     test_loader_COMBO = get_dataloader(COMBO_test_dataset)
 
+    train_loader_SVHN = get_dataloader(SVHN_train_dataset)
+    test_loader_SVHM = get_dataloader(SVHN_test_dataset)
+
+    train_loader_FashionMNIST = get_dataloader(FashionMNIST_train_dataset)
+    test_loader_FashionMNIST = get_dataloader(FashionMNIST_test_dataset)
+
 
     train_loaders = {"MNIST": train_loader_MNIST,
                     "CIFAR10": train_loader_CIFAR10,
-                    "COMBO": train_loader_COMBO}
+                    "COMBO": train_loader_COMBO,
+                    "SVHN": train_loader_SVHN,
+                    "FashionMNIST": train_loader_FashionMNIST,}
     test_loaders = {"MNIST": test_loader_MNIST,
                     "CIFAR10": test_loader_CIFAR10,
-                    "COMBO": test_loader_COMBO}
+                    "COMBO": test_loader_COMBO,
+                    "SVHN": test_loader_SVHM,
+                    "FashionMNIST": test_loader_FashionMNIST,}
 
     datasets_loaded = True
 

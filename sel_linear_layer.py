@@ -4,15 +4,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
-class SelConv2d(nn.Module):
+class SelLinear(nn.Module):
 
     def __init__(self, in_depth, out_depth, full_depth, **kwargs):
-        super(SelConv2d, self).__init__()
+        super(SelLinear, self).__init__()
         self.in_depth = in_depth
         self.out_depth = out_depth
         self.full_depth = full_depth
         self.attention = nn.Linear(1, out_depth * full_depth)
-        self.conv = nn.Conv2d(in_depth, full_depth, **kwargs)
+        self.linear = nn.Linear(in_depth, full_depth, **kwargs)
         self.acccumulate_w_activated = False
         self.compute_kl_divergence_loss = False
         self.accumulted_count = 0
@@ -23,7 +23,7 @@ class SelConv2d(nn.Module):
         batch_size = z.size(0)
         task = Variable(torch.Tensor([task]).repeat(batch_size).view(batch_size, 1).cuda())
         out_depth, full_depth = self.out_depth, self.full_depth
-        y = self.conv(z)  # y is batch_size x full_depth x h x w
+        y = self.linear(z)  # y is batch_size x full_depth
         map_size = y.size()[-2:]
         w = self.attention(task)
         # print(x.view(batch_size, -1).size())
@@ -46,7 +46,7 @@ class SelConv2d(nn.Module):
 
         if self.compute_kl_divergence_loss:
             w_sum_avg = w.sum(dim=0) / batch_size
-            kl_divergence = F.kl_div(w_sum_avg, Variable(self.kl_accumulated_w))
+            kl_divergence = F.kl_div(w_sum_avg, Variable(self.accumulated_w))
             self.kl_loss = kl_divergence
 
         if self.compute_entropy_loss:
@@ -55,13 +55,13 @@ class SelConv2d(nn.Module):
             self.entropy_loss = entropy.sum()
 
         z = torch.bmm(w, y.view(batch_size, full_depth, -1))
-        return z.view(torch.Size([batch_size, out_depth]) + map_size)
+        return z.view(batch_size, out_depth)
 
     def acccumulate_w(self):
         self.acccumulate_w_activated = True
         
     def reset_accumulated_w(self):
-        del self.accumulated_w
+        #del self.accumulated_w
         self.accumulted_count = 0
         self.acccumulate_w_activated = False
 

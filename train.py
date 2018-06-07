@@ -33,7 +33,7 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='disables CUDA training')
 parser.add_argument('--ewc', action='store_true', default=False,
                     help='adds elastic weight consolidation')
-parser.add_argument('--elastic-scale', type=float, default=1000,
+parser.add_argument('--elastic-scale', type=float, default=10 ** 6,
                     dest='elastic_scale',
                     help='Elastic Scale (default: 10^3)')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -99,7 +99,9 @@ def train(model, optimizer, epoch, dataset_name, elastic=None):
         data, target = Variable(data), Variable(target)
         optimizer.zero_grad()
         output = model(data)
-        loss = F.cross_entropy(output, target) + model.get_extra_loss()
+        l = F.cross_entropy(output, target)
+        #print(l)
+        loss = l #+ model.get_extra_loss()
         if elastic is not None:
             elastic_loss = elastic(model) * args.elastic_scale
             elastic_losses.append(elastic_loss.data[0])
@@ -155,41 +157,87 @@ for i in range(args.epochs):
     MNIST_results_simple.append(test_simple("MNIST"))
     CIFAR10_results_simple.append(test_simple("CIFAR10"))
 
-for i in range(args.epochs):
+for i in range(3):
     train_simple(i + 1, "CIFAR10")
     MNIST_results_simple.append(test_simple("MNIST"))
     CIFAR10_results_simple.append(test_simple("CIFAR10"))
-'''
 
+'''
 print("------Starting attention run------")
+
+#model_attention.use_entropy_loss(10 ** -3)
 
 # model_attention.activate_half_full_depth()
 
 for i in range(args.epochs):
-    train_attention(i + 1, "MNIST")
-    MNIST_results_attention.append(test_attention("MNIST"))
+    model_attention.set_task(0)
+    train_attention(i + 1, "CIFAR10")
+
+    model_attention.set_task(0)
     CIFAR10_results_attention.append(test_attention("CIFAR10"))
+    model_attention.set_task(1)
+    MNIST_results_attention.append(test_attention("MNIST"))
+    model_attention.set_task(2)
+    test_attention("SVHN")
+    model_attention.set_task(3)
+    test_attention("FashionMNIST")
 
 if args.ewc:
-    train_loader, _ = get_dataset_loaders("MNIST")
+    train_loader, _ = get_dataset_loaders("CIFAR10")
     elastic = ElasticConstraint(model_attention, train_loader, args)
 else:
     elastic = None
 
-model_attention.acccumulate_w()
-test_attention("MNIST")
-model_attention.use_kl_with_accumulated_w(10 ** 3, print_w=False)
+#model_attention.acccumulate_w()
+#test_attention("MNIST")
+#model_attention.use_kl_with_accumulated_w(10 ** 3, print_w=False)
+
+
 
 # model_attention.deactivate_half_full_depth()
 
 # model_attention.freeze_convs()
 
-for i in range(3):
-    train_attention(i + 1, "CIFAR10", elastic=elastic)
-    # model_attention.acccumulate_w()
-    MNIST_results_attention.append(test_attention("MNIST"))
-    # model_attention.average_print_reset_accumulated_w(print_2nd=False)
+for i in range(args.epochs):
+    model_attention.set_task(1)
+    train_attention(i + 1, "MNIST", elastic=elastic)
+
+    model_attention.set_task(0)
     CIFAR10_results_attention.append(test_attention("CIFAR10"))
+    model_attention.set_task(1)
+    MNIST_results_attention.append(test_attention("MNIST"))
+    model_attention.set_task(2)
+    test_attention("SVHN")
+    model_attention.set_task(3)
+    test_attention("FashionMNIST")
+
+
+for i in range(args.epochs):
+    model_attention.set_task(2)
+    train_attention(i + 1, "SVHN", elastic=elastic)
+
+    model_attention.set_task(0)
+    CIFAR10_results_attention.append(test_attention("CIFAR10"))
+    model_attention.set_task(1)
+    MNIST_results_attention.append(test_attention("MNIST"))
+    model_attention.set_task(2)
+    test_attention("SVHN")
+    model_attention.set_task(3)
+    test_attention("FashionMNIST")
+
+for i in range(args.epochs):
+    model_attention.set_task(3)
+    train_attention(i + 1, "FashionMNIST", elastic=elastic)
+
+    model_attention.set_task(0)
+    CIFAR10_results_attention.append(test_attention("CIFAR10"))
+    model_attention.set_task(1)
+    MNIST_results_attention.append(test_attention("MNIST"))
+    model_attention.set_task(2)
+    test_attention("SVHN")
+    model_attention.set_task(3)
+    test_attention("FashionMNIST")
+
 
 
 # code for saving some plots
