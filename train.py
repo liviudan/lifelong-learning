@@ -37,7 +37,7 @@ parser.add_argument('--elastic-scale', type=float, default=10 ** 6,
                     dest='elastic_scale',
                     help='Elastic Scale (default: 10^3)')
 parser.add_argument('--baseline', action='store_true', default=False,
-                    help='runs the baseline')
+                    help='runs the baseline instead')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 args = parser.parse_args()
@@ -146,19 +146,14 @@ print("------------------Starting Sequential traning.------------------")
 
 train_simple, test_simple, model_simple, optimizer_simple, train_attention, test_attention, model_attention, optimizer_attention = init_simple_and_attention_run()
 
-MNIST_results_simple = []
-MNIST_results_attention = []
-CIFAR10_results_simple = []
-CIFAR10_results_attention = []
-
 
 if args.baseline:
     print("------Starting simple run------")
 
     for i in range(args.epochs):
         train_simple(i + 1 , "CIFAR10")
-        MNIST_results_simple.append(test_simple("MNIST"))
-        CIFAR10_results_simple.append(test_simple("CIFAR10"))
+        test_simple("MNIST")
+        test_simple("CIFAR10")
 
     if args.ewc:
         train_loader, _ = get_dataset_loaders("CIFAR10")
@@ -168,127 +163,32 @@ if args.baseline:
 
     for i in range(args.epochs):
         train_simple(i + 1, "MNIST", elastic)
-        MNIST_results_simple.append(test_simple("MNIST"))
-        CIFAR10_results_simple.append(test_simple("CIFAR10"))
+        test_simple("MNIST")
+        test_simple("CIFAR10")
 else:
 
     print("------Starting attention run------")
 
-    #model_attention.use_entropy_loss(10 ** -3)
+    tasks = {0: "CIFAR10",
+             1: "MNIST",
+             2: "SVHN",
+             3: "FashionMNIST"}
 
-    # model_attention.activate_half_full_depth()
+    def train_task(task_id, epochs):
+        for i in range(epochs):
+            model_attention.set_task(task_id)
+            train_attention(i + 1, tasks[task_id])
 
-    for i in range(args.epochs):
-        model_attention.set_task(0)
-        train_attention(i + 1, "CIFAR10")
+            for task in tasks:
+                model_attention.set_task(task)
+                test_attention(tasks[task])
 
-        model_attention.set_task(0)
-        CIFAR10_results_attention.append(test_attention("CIFAR10"))
-        model_attention.set_task(1)
-        MNIST_results_attention.append(test_attention("MNIST"))
-        # model_attention.set_task(2)
-        # test_attention("SVHN")
-        # model_attention.set_task(3)
-        # test_attention("FashionMNIST")
+    train_task(0, args.epochs)
 
     if args.ewc:
-        train_loader, _ = get_dataset_loaders("CIFAR10")
+        train_loader, _ = get_dataset_loaders(tasks[0])
         elastic = ElasticConstraint(model_attention, train_loader, args)
     else:
         elastic = None
 
-    #model_attention.acccumulate_w()
-    #test_attention("MNIST")
-    #model_attention.use_kl_with_accumulated_w(10 ** 3, print_w=False)
-
-
-    # model_attention.deactivate_half_full_depth()
-
-    # model_attention.freeze_convs()
-
-    for i in range(args.epochs):
-        model_attention.set_task(1)
-        train_attention(i + 1, "MNIST", elastic=elastic)
-
-        model_attention.set_task(0)
-        CIFAR10_results_attention.append(test_attention("CIFAR10"))
-        model_attention.set_task(1)
-        MNIST_results_attention.append(test_attention("MNIST"))
-        # model_attention.set_task(2)
-        # test_attention("SVHN")
-        # model_attention.set_task(3)
-        # test_attention("FashionMNIST")
-
-    '''
-    for i in range(args.epochs):
-        model_attention.set_task(2)
-        train_attention(i + 1, "SVHN", elastic=elastic)
-
-        model_attention.set_task(0)
-        CIFAR10_results_attention.append(test_attention("CIFAR10"))
-        model_attention.set_task(1)
-        MNIST_results_attention.append(test_attention("MNIST"))
-        model_attention.set_task(2)
-        test_attention("SVHN")
-        model_attention.set_task(3)
-        test_attention("FashionMNIST")
-
-    for i in range(args.epochs):
-        model_attention.set_task(3)
-        train_attention(i + 1, "FashionMNIST", elastic=elastic)
-
-        model_attention.set_task(0)
-        CIFAR10_results_attention.append(test_attention("CIFAR10"))
-        model_attention.set_task(1)
-        MNIST_results_attention.append(test_attention("MNIST"))
-        model_attention.set_task(2)
-        test_attention("SVHN")
-        model_attention.set_task(3)
-        test_attention("FashionMNIST")
-    '''
-
-
-# code for saving some plots
-'''
-
-MNIST_results = {
-                "Sequential MNIST simple conv": MNIST_results_simple,
-                "Sequential MNIST attention conv": MNIST_results_attention,
-                }
-
-CIFAR10_results = {
-                  "Sequential CIFAR10 simple conv": CIFAR10_results_simple,
-                  "Sequential CIFAR10 attention conv": CIFAR10_results_attention,
-                  }
-
-df_MNIST = pd.DataFrame(MNIST_results)
-df_CIFAR10 = pd.DataFrame(CIFAR10_results)
-
-timestamp = str(int(time.time()))
-modifier = "kl"
-try:
-    os.mkdir("results")
-except:
-    pass
-
-try:
-    os.mkdir("results/" + modifier)
-except:
-    pass
-
-os.mkdir("results/" + modifier + "/" + timestamp)
-
-get_filename = lambda dataset_name: "results/" + modifier + "/" + timestamp + "/" + dataset_name \
-                                    + "_results_sequential_epoch_count_" + str(args.epochs) \
-                                    + "_" + modifier
-
-df_MNIST.to_csv(get_filename("MNIST") + ".csv")
-df_CIFAR10.to_csv(get_filename("CIFAR10") + ".csv")
-
-df_MNIST.plot()
-plt.savefig(get_filename("MNIST") + ".png")
-plt.clf()
-
-df_CIFAR10.plot()
-plt.savefig(get_filename("CIFAR10") + ".png")
-'''
+    train_task(1, args.epochs)
