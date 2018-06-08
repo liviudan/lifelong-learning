@@ -1,1 +1,1 @@
-# lifeflong-learning
+# lifelong-learning
