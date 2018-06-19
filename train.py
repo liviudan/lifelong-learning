@@ -23,7 +23,7 @@ parser.add_argument('--batch-size', type=int, default=32, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
-parser.add_argument('--epochs', type=int, default=3, metavar='N',
+parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                     help='learning rate (default: 0.001)')
@@ -38,6 +38,8 @@ parser.add_argument('--elastic-scale', type=float, default=10 ** 6,
                     help='Elastic Scale (default: 10^3)')
 parser.add_argument('--baseline', action='store_true', default=False,
                     help='runs the baseline instead')
+parser.add_argument('--combo_training', action='store_true', default=False,
+                    help='runs simultaneous learning instead')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 args = parser.parse_args()
@@ -103,13 +105,13 @@ def train(model, optimizer, epoch, dataset_name, elastic=None):
         output = model(data)
         l = F.cross_entropy(output, target)
         #print(l)
-        loss = l #+ model.get_extra_loss()
+        loss = l + model.get_extra_loss()
         if elastic is not None:
             elastic_loss = elastic(model) * args.elastic_scale
             elastic_losses.append(elastic_loss.data[0])
             ce_losses.append(loss.data[0])
             loss = loss + elastic_loss
-        loss.backward()
+        loss.backward(retain_graph=True)
         train_loss += loss.data[0]
         optimizer.step()
         if batch_idx == len(train_loader) - 1:
@@ -142,46 +144,81 @@ def init_simple_and_attention_run():
     return train_simple, test_simple, model_simple, optimizer_simple, train_attention, test_attention, model_attention, optimizer_attention
 
 
-print("------------------Starting Sequential traning.------------------")
-
 train_simple, test_simple, model_simple, optimizer_simple, train_attention, test_attention, model_attention, optimizer_attention = init_simple_and_attention_run()
 
+MNIST_results = []
+CIFAR10_results = []
+SVHN_results = []
+FashionMNIST_results = []
+
+tasks = {0: "MNIST",
+         1: "CIFAR10",
+         2: "SVHN",
+         3: "FashionMNIST",
+         }
+
+task_results = {0: MNIST_results,
+                1: CIFAR10_results,
+                2: SVHN_results,
+                3: FashionMNIST_results,
+                }
+
+if not args.combo_training:
+    print("------------------Starting Sequential traning.------------------")
+else:
+    print("------------------Starting Simultaneous traning.------------------")
+    tasks[4] = "COMBO"
+    COMBO_results = []
+
+    task_results[4] = COMBO_results
 
 if args.baseline:
     print("------Starting simple run------")
 
-    for i in range(args.epochs):
-        train_simple(i + 1 , "CIFAR10")
-        test_simple("MNIST")
-        test_simple("CIFAR10")
+    def train_task(task_id, epochs):
+        print("\n---Training on task " + tasks[task_id] + "---")
 
-    if args.ewc:
-        train_loader, _ = get_dataset_loaders("CIFAR10")
-        elastic = ElasticConstraint(model_simple, train_loader, args)
+        for i in range(epochs):
+            train_simple(i + 1, tasks[task_id])
+
+            for task in tasks:
+                result = test_simple(tasks[task])
+                task_results[task].append(result)
+
+    if not args.combo_training:
+        train_task(0, args.epochs)
+
+        if args.ewc:
+            train_loader, _ = get_dataset_loaders(tasks[0])
+            elastic = ElasticConstraint(model_simple, train_loader, args)
+        else:
+            elastic = None
+
+        train_task(1, args.epochs)
+
+        train_task(2, args.epochs)
+
+        train_task(3, args.epochs)
     else:
-        elastic = None
+        train_task(4, args.epochs)
 
-    for i in range(args.epochs):
-        train_simple(i + 1, "MNIST", elastic)
-        test_simple("MNIST")
-        test_simple("CIFAR10")
 else:
 
     print("------Starting attention run------")
 
-    tasks = {0: "CIFAR10",
-             1: "MNIST",
-             2: "SVHN",
-             3: "FashionMNIST"}
+    #model_attention.use_entropy_loss(10 ** -5)
 
     def train_task(task_id, epochs):
+        print("\n---Training on task " + tasks[task_id] + "---")
+
         for i in range(epochs):
             model_attention.set_task(task_id)
             train_attention(i + 1, tasks[task_id])
 
             for task in tasks:
                 model_attention.set_task(task)
-                test_attention(tasks[task])
+                result = test_attention(tasks[task])
+                task_results[task].append(result)
 
     train_task(0, args.epochs)
 
@@ -191,4 +228,65 @@ else:
     else:
         elastic = None
 
+    #cummulated_ws = model_attention.get_w(0)
+    #model_attention.set_cummulated_ws(cummulated_ws)
+    #model_attention.use_l1_loss(10 ** 2)
+
     train_task(1, args.epochs)
+
+s_MNIST = pd.Series(MNIST_results)
+s_CIFAR10 = pd.Series(CIFAR10_results)
+s_SVHN = pd.Series(SVHN_results)
+s_FashionMNIST = pd.Series(FashionMNIST_results)
+if args.combo_training:
+    s_COMBO = pd.Series(COMBO_results)
+
+timestamp = str(int(time.time()))
+modifier = "Baseline simple on simultaneous " + str(args.epochs) + " epochs"
+
+try:
+    os.mkdir("results")
+except:
+    pass
+
+try:
+    os.mkdir("results/" + modifier)
+except:
+    pass
+
+try:
+    os.mkdir("results/" + modifier + "/" + timestamp)
+except:
+    pass
+
+def get_filename_prefix():
+    return "results/" + modifier + "/" + timestamp + "/"
+
+s_MNIST.to_csv(get_filename_prefix() + "MNIST" +".csv")
+s_CIFAR10.to_csv(get_filename_prefix() + "CIFAR10" + ".csv")
+s_SVHN.to_csv(get_filename_prefix() + "SVHN" + ".csv")
+s_FashionMNIST.to_csv(get_filename_prefix() + "FashionMNIST" + ".csv")
+if args.combo_training:
+    s_COMBO.to_csv(get_filename_prefix() + "COMBO" + ".csv")
+
+
+s_MNIST.plot()
+plt.savefig(get_filename_prefix() + "MNIST" +".png")
+plt.clf()
+
+s_CIFAR10.plot()
+plt.savefig(get_filename_prefix() + "CIFAR10" + ".png")
+plt.clf()
+
+s_SVHN.plot()
+plt.savefig(get_filename_prefix() + "SVHN" + ".png")
+plt.clf()
+
+s_FashionMNIST.plot()
+plt.savefig(get_filename_prefix() + "FashionMNIST" + ".png")
+plt.clf()
+
+if args.combo_training:
+    s_COMBO.plot()
+    plt.savefig(get_filename_prefix() + "COMBO" + ".png")
+    plt.clf()

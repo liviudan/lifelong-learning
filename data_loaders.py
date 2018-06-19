@@ -2,6 +2,8 @@ from __future__ import print_function
 import torch
 from torchvision import datasets, transforms
 
+from modified_concat_dataset import ModifiedConcatDataset
+
 datasets_loaded = False
 train_loaders, test_loaders = None, None
 
@@ -9,19 +11,19 @@ def load_datasets(args):
     global datasets_loaded, train_loaders, test_loaders
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-    MNIST_train_dataset = datasets.MNIST('../data', train=True, download=True,
+    MNIST_train_dataset = datasets.MNIST('../data/MNIST', train=True, download=True,
                                      transform=transforms.Compose([
                                          transforms.Pad(2),
                                          transforms.ToTensor(),
                                          transforms.Normalize((0.1307,), (0.3081,))
                                      ]))
-    MNIST_test_dataset = datasets.MNIST('../data', train=False, transform=transforms.Compose([
+    MNIST_test_dataset = datasets.MNIST('../data/MNIST', train=False, transform=transforms.Compose([
                                     transforms.Pad(2),
                                     transforms.ToTensor(),
                                     transforms.Normalize((0.1307,), (0.3081,))
                                     ]))
 
-    CIFAR10_train_dataset = datasets.CIFAR10('../data', train=True, download=True,
+    CIFAR10_train_dataset = datasets.CIFAR10('../data/CIFAR10', train=True, download=True,
                                          transform=transforms.Compose([
                                              transforms.Grayscale(),
                                              #transforms.RandomCrop(32, padding=4),
@@ -30,44 +32,50 @@ def load_datasets(args):
                                              transforms.Normalize((0.4914, 0.4822, 0.4465), 
                                                 (0.2023, 0.1994, 0.2010))
                                          ]))
-    CIFAR10_test_dataset = datasets.CIFAR10('../data', train=False, transform=transforms.Compose([
+    CIFAR10_test_dataset = datasets.CIFAR10('../data/CIFAR10', train=False, transform=transforms.Compose([
                                         transforms.Grayscale(),
                                         transforms.ToTensor(),
                                         transforms.Normalize((0.4914, 0.4822, 0.4465), 
                                             (0.2023, 0.1994, 0.2010))
                                         ]))
 
-    SVHN_train_dataset = datasets.SVHN(root='../data', split='train', download=True,
+    SVHN_train_dataset = datasets.SVHN(root='../data/SVHN', split='train', download=True,
                                     transform=transforms.Compose([
                                         transforms.Grayscale(),
                                         transforms.ToTensor(),
                                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
                                     ]))
-    SVHN_test_dataset = datasets.SVHN(root='../data', split='test', download=True,
+    SVHN_test_dataset = datasets.SVHN(root='../data/SVHN', split='test', download=True,
                                 transform=transforms.Compose([
                                     transforms.Grayscale(),
                                     transforms.ToTensor(),
                                     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
                                 ]))
 
-    FashionMNIST_train_dataset = datasets.FashionMNIST('../data', train=True, download=True,
+    FashionMNIST_train_dataset = datasets.FashionMNIST('../data/FashionMNIST', train=True, download=True,
                                      transform=transforms.Compose([
                                          transforms.Pad(2),
                                          transforms.ToTensor(),
                                          transforms.Normalize((0.1307,), (0.3081,))
                                      ]))
-    FashionMNIST_test_dataset = datasets.FashionMNIST('../data', train=False, transform=transforms.Compose([
+    FashionMNIST_test_dataset = datasets.FashionMNIST('../data/FashionMNIST', train=False, transform=transforms.Compose([
                                     transforms.Pad(2),
                                     transforms.ToTensor(),
                                     transforms.Normalize((0.1307,), (0.3081,))
                                     ]))
 
-    COMBO_train_dataset = torch.utils.data.ConcatDataset(
+    COMBO_train_dataset = ModifiedConcatDataset(
                             [MNIST_train_dataset,
-                            CIFAR10_train_dataset])
-    COMBO_test_dataset = torch.utils.data.ConcatDataset(
+                            CIFAR10_train_dataset,
+                            SVHN_train_dataset,
+                            FashionMNIST_train_dataset,
+                            ])
+    COMBO_test_dataset = ModifiedConcatDataset(
                             [MNIST_test_dataset,
-                            CIFAR10_test_dataset])
+                            CIFAR10_test_dataset,
+                            SVHN_test_dataset,
+                            FashionMNIST_test_dataset
+                            ])
 
     get_dataloader = lambda dataset:  torch.utils.data.DataLoader(
                                     dataset, batch_size=args.batch_size,

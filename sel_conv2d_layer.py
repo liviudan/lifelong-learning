@@ -57,6 +57,14 @@ class SelConv2d(nn.Module):
         z = torch.bmm(w, y.view(batch_size, full_depth, -1))
         return z.view(torch.Size([batch_size, out_depth]) + map_size)
 
+    def get_w(self, task):
+        task = Variable(torch.Tensor([task]).cuda())
+        out_depth, full_depth = self.out_depth, self.full_depth
+        w = self.attention(task)
+        w = w.view(out_depth, full_depth)
+        w = F.softmax(w * 100, dim = -1)
+        return w
+
     def acccumulate_w(self):
         self.acccumulate_w_activated = True
         

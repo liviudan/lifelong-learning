@@ -25,6 +25,7 @@ class Net(nn.Module):
             self.fc2 = nn.Linear(100, 10)
         self.compute_kl_div_loss = False
         self.compute_entropy_loss = False
+        self.compute_l1_loss = False
 
     def forward(self, x):
         if self.use_attention_improvement:
@@ -47,6 +48,36 @@ class Net(nn.Module):
 
     def set_task(self, task):
         self.task = task
+
+    def get_w(self, task):
+        w1 = self.sconv1.get_w(task)
+        w2 = self.sconv2.get_w(task)
+        w3 = self.sfc1.get_w(task)
+        w4 = self.sfc2.get_w(task)
+
+        return [w1, w2, w3, w4]
+
+    def set_cummulated_ws(self, cummulated_ws):
+        self.cummulated_ws = cummulated_ws
+
+    def get_l1_cost(self):
+        reverse_cummulated_ws = [1 - i for i in self.cummulated_ws]
+        current_ws = self.get_w(self.task)
+        #print(current_ws[0])
+        #print(reverse_cummulated_ws[0])
+        q = [current_ws[i] * reverse_cummulated_ws[i] for i in range(len(current_ws))]
+        q = [q[i].sum() for i in range(len(q))]
+        q_sum = sum(q)
+        r = [reverse_cummulated_ws[i].sum() for i in range(len(reverse_cummulated_ws))]
+        r_sum = sum(r)
+        #print(q_sum, r_sum)
+
+        return q_sum / r_sum
+
+
+    def use_l1_loss(self, compression_factor):
+        self.compute_l1_loss = True
+        self.compression_factor = compression_factor
 
     def acccumulate_w(self):
         self.sconv1.acccumulate_w()
@@ -110,10 +141,15 @@ class Net(nn.Module):
             l1 = self.entropy_factor * self.sconv1.get_entropy_loss()
             l2 = self.entropy_factor * self.sconv2.get_entropy_loss()
             #print(l1, l2)
-            loss += self.entropy_factor * self.sconv1.get_entropy_loss()
-            loss += self.entropy_factor * self.sconv2.get_entropy_loss()
-            loss += self.entropy_factor * self.sfc1.get_entropy_loss()
-            loss += self.entropy_factor * self.sfc2.get_entropy_loss()
+            loss -= self.entropy_factor * self.sconv1.get_entropy_loss()
+            loss -= self.entropy_factor * self.sconv2.get_entropy_loss()
+            loss -= self.entropy_factor * self.sfc1.get_entropy_loss()
+            loss -= self.entropy_factor * self.sfc2.get_entropy_loss()
+
+        if self.compute_l1_loss:
+            l1_loss = self.get_l1_cost()
+            #print(self.compression_factor * l1_loss)
+            loss += self.compression_factor * l1_loss
 
         return loss
 
